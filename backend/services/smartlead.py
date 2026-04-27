@@ -87,8 +87,8 @@ class SmartleadClient:
             for row in page:
                 if row.get("reply_time"):
                     replies.append({
-                        "text": row.get("email_message", ""),
                         "lead_email": row.get("lead_email", ""),
+                        "lead_category": row.get("lead_category"),   # Smartlead's own categorization
                         "sequence_number": row.get("sequence_number"),
                         "reply_time": row.get("reply_time"),
                     })

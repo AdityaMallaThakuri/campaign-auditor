@@ -57,8 +57,7 @@ def recluster(campaign_id: int, session: Session = Depends(get_session)):
         session.delete(c)
     session.flush()
 
-    texts = [r.get("text", r.get("reply_message", "")) for r in raw_replies if r]
-    new_clusters = cluster_replies(texts, campaign_id)
+    new_clusters = cluster_replies(raw_replies, campaign_id)
 
     for cluster in new_clusters:
         session.add(cluster)
