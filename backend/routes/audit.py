@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlmodel import Session, select
 from typing import Optional
 from datetime import datetime, timedelta
@@ -9,15 +9,20 @@ from models.tables import Campaign, AuditSnapshot
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 
+AUDITABLE_STATUSES = {"active", "paused", "completed"}
+
 
 class AuditRunRequest(BaseModel):
     campaign_ids: Optional[list[int]] = None
 
 
 @router.post("/run")
-def run_audit(request: AuditRunRequest = AuditRunRequest(), session: Session = Depends(get_session)):
+def run_audit(
+    request: AuditRunRequest = Body(default_factory=AuditRunRequest),
+    session: Session = Depends(get_session),
+):
     from services.smartlead import SmartleadClient
-    from services.analyzer import calculate_health_score, diagnose_root_cause, detect_dropoff
+    from services.analyzer import calculate_health_score, diagnose_root_cause, detect_dropoff, detect_decay
     from models.tables import SequenceStep, ReplyCluster
 
     client = SmartleadClient()
@@ -27,11 +32,15 @@ def run_audit(request: AuditRunRequest = AuditRunRequest(), session: Session = D
             select(Campaign).where(Campaign.id.in_(request.campaign_ids))
         ).all()
     else:
-        campaigns = session.exec(select(Campaign)).all()
-
-    if not campaigns:
-        client.sync_campaigns(session)
-        campaigns = session.exec(select(Campaign)).all()
+        # Default: only audit active + paused + completed (skip drafted)
+        campaigns = session.exec(
+            select(Campaign).where(Campaign.status.in_(AUDITABLE_STATUSES))
+        ).all()
+        if not campaigns:
+            client.sync_campaigns(session)
+            campaigns = session.exec(
+                select(Campaign).where(Campaign.status.in_(AUDITABLE_STATUSES))
+            ).all()
 
     audit_id = f"audit_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
     flags = []
@@ -74,12 +83,25 @@ def run_audit(request: AuditRunRequest = AuditRunRequest(), session: Session = D
                 step_dropoff=step_dropoff,
             )
             session.add(snapshot)
+            session.flush()
+
+            # Decay detection using all snapshots for this campaign
+            all_snapshots = session.exec(
+                select(AuditSnapshot)
+                .where(AuditSnapshot.campaign_id == campaign.id)
+                .order_by(AuditSnapshot.audited_at.asc())
+            ).all()
+            decaying = detect_decay(all_snapshots)
 
             flags.append({
                 "campaign_id": campaign.id,
                 "name": campaign.name,
                 "root_cause": root_cause,
                 "health_score": health,
+                "open_rate": open_rate,
+                "reply_rate": reply_rate,
+                "bounce_rate": bounce_rate,
+                "decaying": decaying,
             })
         except Exception as e:
             flags.append({
