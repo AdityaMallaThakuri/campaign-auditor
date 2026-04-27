@@ -43,6 +43,10 @@ def run_audit(request: AuditRunRequest = AuditRunRequest(), session: Session = D
             reply_rate = stats.get("reply_rate", 0.0)
             bounce_rate = stats.get("bounce_rate", 0.0)
 
+            # Sync sequences + per-step stats for this campaign
+            client.sync_campaign_detail(session, campaign)
+            session.flush()
+
             steps = session.exec(
                 select(SequenceStep)
                 .where(SequenceStep.campaign_id == campaign.id)

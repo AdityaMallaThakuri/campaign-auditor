@@ -73,6 +73,6 @@ def sync_campaigns(session: Session = Depends(get_session)):
 
     client = SmartleadClient()
     start = datetime.utcnow()
-    synced = client.sync_campaigns(session)
+    synced = client.sync_campaigns(session, force=True)
     duration_ms = int((datetime.utcnow() - start).total_seconds() * 1000)
     return {"synced": synced, "duration_ms": duration_ms}
